@@ -1,0 +1,39 @@
+﻿# Build outputs
+build/
+out/
+dist/
+*.o
+*.obj
+*.pdb
+*.ilk
+
+# Local/runtime artifacts
+*.log
+*.ini
+*.iso
+*.bin
+*.img
+*.cso
+saves/
+save/
+shots/
+texdump/
+vram.bin
+ram_*.bin
+settings.bmp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editors/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Archives
+*.zip
+*.7z
+*.rar

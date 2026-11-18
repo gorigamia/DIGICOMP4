@@ -1,0 +1,36 @@
+{
+  "SLUS_208.36": {
+    "sha256": "ddb9ca4680b246b5d406f98f37c5996c38f4a5dc91709964bcd34116e05c20ab",
+    "code_end": "0x00467120",
+    "embedded_modules": [
+      {
+        "name": "embedded_syscall",
+        "source_address": "0x00482D60",
+        "load_address": "0x00076000",
+        "size": "0x740",
+        "code_size": "0x710"
+      },
+      {
+        "name": "embedded_syscall91",
+        "source_address": "0x00482598",
+        "load_address": "0x00074000",
+        "size": "0x7A8",
+        "code_size": "0x7A8"
+      },
+      {
+        "name": "embedded_syscall84",
+        "source_address": "0x00481F28",
+        "load_address": "0x00075000",
+        "size": "0x330",
+        "code_size": "0x2D8"
+      },
+      {
+        "name": "embedded_ee_high",
+        "source_address": "0x0051FD00",
+        "load_address": "0x0051FD00",
+        "size": "0x20300",
+        "code_size": "0x20300"
+      }
+    ]
+  }
+}

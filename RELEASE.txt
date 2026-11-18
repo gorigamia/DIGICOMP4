@@ -1,0 +1,12 @@
+Digimon World 4 Recomp - PS2 USA - experimental preview
+
+Extract into a writable folder. Place your own Digimon World 4 (USA).iso
+next to DigimonWorld4.exe and launch the EXE. No Python or compiler required.
+Game data is not included. Supported executable: SLUS_208.36.
+Windows x64 with Direct3D 11 presentation support required.
+
+Default: software renderer, half emulated speed, original 4:3 projection.
+Initial logos and opening video now render. Menu, gameplay and scenery are
+NOT yet validated. This preview is not a completed port.
+Use --clock-scale=1 for full-speed diagnostics; loading can stall under load.
+Settings/logs/saves are written beside the EXE.
