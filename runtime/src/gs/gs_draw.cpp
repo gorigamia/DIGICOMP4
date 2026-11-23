@@ -1118,6 +1118,7 @@ void raster_init(int threads) {
         if (threads > 16) threads = 16;
     }
     if (threads > 32) threads = 32;
+    if (g_gpu_req) log_write(LOG_GS, "raster: gpu init");
     if (g_gpu_req && gpu::init(g_gpu_req_scale)) {
         g_gpu_on = true;
         g_gpu_compare = g_gpu_req_compare;
@@ -1426,8 +1427,8 @@ void draw_primitive(int prim, const Vertex* v) {
     if (census_active()) census_draw(ds, prim, v);
     static int logged = 0;
     bool boring = (prim == 6 && !ds.tme && v[1].r == 0 && v[1].g == 0 && v[1].b == 0);
-    // GRANDIA_LOG_FB_READS: only draws sampling frame/depth buffers (post effects), host time window
-    static int fb_reads = getenv("GRANDIA_LOG_FB_READS") ? 1 : 0;
+    // DW4_LOG_FB_READS: only draws sampling frame/depth buffers (post effects), host time window
+    static int fb_reads = getenv("DW4_LOG_FB_READS") ? 1 : 0;
     bool fb_read = fb_reads && ds.tme && (ds.tbp == 0 || ds.tbp == 0xe00 || ds.tbp == 0x1c00 || ds.tbp == 0x2a00) &&
                    host_time_sec() >= g_log_draws_from && host_time_sec() < g_log_draws_from + 0.2;
     if ((fb_read || (g_log_draws && !fb_reads)) && !boring && (fb_reads || kernel::emu_time() >= g_log_draws_from) && logged++ < 30000) {

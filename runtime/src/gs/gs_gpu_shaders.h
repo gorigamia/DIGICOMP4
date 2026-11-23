@@ -27,6 +27,7 @@ cbuffer CB : register(b0) {
     float4 f15;         // HD texture: on, scale k (HD texels per texel); sharp text: on, full alpha
     int4 dimx[4];
 };
+#define POINT_UI f12.x
 #define FPSM f0.x
 #define FBMSK f0.y
 #define DTHE f1.x
@@ -207,6 +208,7 @@ uint fetch_lv(int l, int u, int v) { return load_lv(l, wrap_u(l, u), wrap_v(l, v
 uint4 lerp8(uint4 a, uint4 b, uint w) { return (a * (256 - w) + b * w) >> 8; }
 // texel at level-0 coordinates (u, v) from mip level l
 uint4 sample_lv(int l, float u, float v, bool lin) {
+    if (POINT_UI != 0) lin = false;
     float sc = (l == 0) ? TSCALE : 1.0 / (float)(1 << l);
     u *= sc;
     v *= sc;
@@ -452,9 +454,11 @@ cbuffer P : register(b0) {
     int4 c2;
     int4 m;         // alp, mmod, slbg, field mode
     int4 bg;        // background color, scale S
+    int4 fx;        // FXAA enabled, output width, output height, unused
 };
 Texture2D<uint> s1 : register(t0);
 Texture2D<uint> s2 : register(t1);
+Texture2D<float> ui_mask : register(t2);
 struct VSOut { float4 pos : SV_Position; };
 VSOut vs_full(uint id : SV_VertexID) {
     VSOut o;
@@ -469,6 +473,32 @@ uint3 rgb_of(uint raw, int kind) {
 uint alpha_of(uint raw, int kind) {
     if (kind == 2) return (raw & 0x8000) != 0 ? 0x80 : 0;
     return raw >> 24;
+}
+// Compact FXAA 3.11 (quality preset), fed by integer surface loads. The mask keeps the pass off
+// the 2D layer so letter contours stay pixel-exact.
+float3 fxaa_rgb(int2 q, int2 d, int S, int2 lim) {
+    int2 p = clamp(q + d, int2(0, 0), lim);
+    return rgb_of(s1.Load(int3(c1.x * S + p.x, c1.y * S + p.y, 0)), c1.z) / 255.0;
+}
+float3 fxaa(float3 c, int2 P, int S, int2 lim) {
+    static const float3 luma = float3(0.299, 0.587, 0.114);
+    float3 nw = fxaa_rgb(P, int2(-1, -1) * S, S, lim), ne = fxaa_rgb(P, int2(1, -1) * S, S, lim);
+    float3 sw = fxaa_rgb(P, int2(-1, 1) * S, S, lim), se = fxaa_rgb(P, int2(1, 1) * S, S, lim);
+    float3 m = fxaa_rgb(P, int2(0, 0), S, lim);
+    float lNW = dot(nw, luma), lNE = dot(ne, luma), lSW = dot(sw, luma), lSE = dot(se, luma), lM = dot(m, luma);
+    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+    if (lMax - lMin < max(0.0312, lMax * 0.125)) return c;
+    float2 dir = float2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+    float reduce = max((lNW + lNE + lSW + lSE) * 0.03125, 0.0078125);
+    float rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+    float2 d = clamp(dir * rcp, -8.0, 8.0) * (float)S;  // native texels -> output pixels
+    int2 d3 = int2(round(d / 3.0 - d * 0.5)), d23 = int2(round(d * 2.0 / 3.0 - d * 0.5));
+    int2 dm = int2(round(-d * 0.5)), dp = int2(round(d * 0.5));
+    float3 a = 0.5 * (fxaa_rgb(P, d3, S, lim) + fxaa_rgb(P, d23, S, lim));
+    float3 b = a * 0.5 + 0.25 * (fxaa_rgb(P, dm, S, lim) + fxaa_rgb(P, dp, S, lim));
+    float lB = dot(b, luma);
+    return (lB < lMin || lB > lMax) ? a : b;
 }
 float4 ps_merge(VSOut i) : SV_Target {
     int2 P = int2(i.pos.xy);
@@ -489,7 +519,10 @@ float4 ps_merge(VSOut i) : SV_Target {
             o = col1;
         }
     }
-    return float4(o / 255.0, 1.0);
+    float3 col = o / 255.0;
+    if (fx.x != 0 && c1.w != 0 && ui_mask.Load(int3(P / S, 0)).x < 0.5)
+        col = fxaa(col, P, S, int2(fx.y, fx.z) - 1);
+    return float4(col, 1.0);
 }
 )HLSL";
 

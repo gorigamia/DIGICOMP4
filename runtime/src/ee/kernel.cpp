@@ -823,7 +823,7 @@ static void update_time() {
         if (resume_test_due() || ss::pending()) g_safe_due = true;
         if (g_preview_vblanks.load(std::memory_order_relaxed) > 0) g_preview_vblanks.fetch_sub(1);
         gs::on_vblank_start();
-        // Grandia gameplay/font hooks use game-specific RAM addresses.
+        // Gameplay/font hooks use game-specific RAM addresses.
         // They must not run against the Digimon executable.
         raise_intc(INTC_VBLANK_S);
         if (g_vsync_flag_ptr) {

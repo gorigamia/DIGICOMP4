@@ -1,0 +1,3 @@
+// Application resources: icon, manifest (common controls 6, per-monitor DPI awareness)
+1 ICON "digimonworld4.ico"
+1 24 "digimonworld4.manifest"

@@ -79,34 +79,25 @@ void build_items() {
     g_items.clear();
     g_items.push_back({nullptr, [] { return std::wstring(L"Grafik"); }, nullptr, true});
     g_items.push_back({L"Widescreen", [&c] { return onoff(c.widescreen_hack); },
-                       drawn(c.widescreen_hack, [] { apply_patches(); })});
-    g_items.push_back({L"Menüs/Texte im 4:3-Format", [&c] { return onoff(c.hud_fix); }, drawn(c.hud_fix)});
-    g_items.push_back({L"Große Dialogfenster", [&c] {
-                           bool wanted = c.big_text == 1 || (c.big_text < 0 && is_steam_deck());
-                           if (wanted && !c.widescreen_hack) return std::wstring(L"braucht Widescreen");
-                           if (c.big_text >= 0) return onoff(c.big_text == 1);
-                           return std::wstring(wanted ? L"Auto (an: Steam Deck)" : L"Auto (aus)");
-                       },
-                       [&c](int dir) {
-                           // automatic -> on -> off
-                           static const int ORDER[3] = {-1, 1, 0};
-                           int i = c.big_text < 0 ? 0 : (c.big_text ? 1 : 2);
-                           c.big_text = ORDER[(i + (dir < 0 ? 2 : 1)) % 3];
-                           kernel::g_preview_vblanks = 8;
-                       }});
-    g_items.push_back({L"Kinobalken entfernen (experimentell)", [&c] { return onoff(c.remove_letterbox); },
-                       drawn(c.remove_letterbox, [&c] { g_ee_patch[1] = g_ee_patch[2] = c.remove_letterbox; })});
+                       drawn(c.widescreen_hack, [&c] { c.aspect = c.widescreen_hack ? 1 : 0; apply_patches(); })});
+    g_items.push_back({L"4:3-Korrektur", [&c] {
+                            if (c.hud_fix == 0) return platform::tr(L"Aus");
+                            if (c.hud_fix == 1) return platform::tr(L"Intelligent");
+                            return platform::tr(L"Streng (4:3)");
+                        },
+                        [&c](int dir) {
+                            c.hud_fix = (c.hud_fix + (dir ? dir : 1) + 3) % 3;
+                            kernel::g_preview_vblanks = 8;
+                        }});
     g_items.push_back({L"HD-Texturen", [&c] { return onoff(c.hd_textures); }, drawn(c.hd_textures)});
     g_items.push_back({L"Scharfe Schrift", [&c] { return onoff(c.sharp_text); }, drawn(c.sharp_text)});
-    g_items.push_back({L"60 fps (experimentell)", [&c] { return onoff(c.fps60); },
-                       toggle(c.fps60, [&c] { kernel::g_force60 = c.fps60; })});
-    g_items.push_back({L"60 fps auch in Kämpfen (experimentell)", [&c] { return onoff(c.fps60_battle); }, toggle(c.fps60_battle)});
-    g_items.push_back({L"Zwischensequenzen mit START überspringen", [&c] { return onoff(c.cutscene_skip); }, toggle(c.cutscene_skip)});
-    g_items.push_back({L"Untertitel in Zwischensequenzen", [&c] { return onoff(c.subtitles); }, toggle(c.subtitles)});
-    g_items.push_back({L"Kämpfe bei Gegnerkontakt", [&c] { return onoff(c.contact_battles); }, toggle(c.contact_battles)});
-    g_items.push_back({L"Undub: japanische Stimmen (ab Neustart)", [&c] { return onoff(c.jp_voices); }, toggle(c.jp_voices)});
-    g_items.push_back({L"Filme mit START überspringen", [&c] { return onoff(c.movie_skip); },
-                       toggle(c.movie_skip, [&c] { g_ee_patch[3] = c.movie_skip; })});
+    g_items.push_back({L"Antialiasing (FXAA)", [&c] { return onoff(c.aa_mode != 0); },
+                       [&c](int dir) { if (dir == 0) { c.aa_mode = c.aa_mode ? 0 : 1; kernel::g_preview_vblanks = 8; } }});
+    g_items.push_back({L"Texturen von UI/Text: Point Sampling", [&c] {
+                            return c.ui_nearest ? std::wstring(L"Point (empfohlen)")
+                                                : std::wstring(L"Bilinear (Linien in Buchstaben)");
+                        },
+                        drawn(c.ui_nearest)});
     g_items.push_back({L"Nachschärfen", [&c] { return c.sharpen ? std::to_wstring(c.sharpen) : std::wstring(L"Aus"); },
                        [&c](int dir) { c.sharpen = clampi(c.sharpen + (dir ? dir : 1) * 10, 0, 100); }});
     g_items.push_back({L"Bildfilter", [&c] {
@@ -128,9 +119,11 @@ void build_items() {
     g_items.push_back({L"VSync", [&c] { return onoff(c.vsync); }, toggle(c.vsync)});
     g_items.push_back({L"Bildrate anzeigen", [&c] { return onoff(c.show_fps); }, toggle(c.show_fps)});
     g_items.push_back({L"Interne Auflösung (ab Neustart)", [&c] {
-                           return c.internal_scale ? std::to_wstring(c.internal_scale) + L"x" : std::wstring(tr(L"Automatisch"));
-                       },
-                       [&c](int dir) { c.internal_scale = (c.internal_scale + (dir < 0 ? 8 : 1)) % 9; }});
+                            return c.internal_scale ? std::to_wstring(c.internal_scale) + L"x" : std::wstring(tr(L"Automatisch"));
+                        },
+                        [&c](int dir) { c.internal_scale = (c.internal_scale + (dir < 0 ? 8 : 1)) % 9; }});
+    g_items.push_back({L"Plano distante (experimental)", [&c] { return std::to_wstring(c.draw_distance) + L" %"; },
+                        [&c](int dir) { c.draw_distance = clampi(c.draw_distance + (dir ? dir : 1) * 25, 100, 200); }});
     g_items.push_back({nullptr, [] { return std::wstring(L"Audio"); }, nullptr, true});
     g_items.push_back({L"Lautstärke gesamt", [&c] { return std::to_wstring(c.volume) + L" %"; }, pct(c.volume, 5)});
     g_items.push_back({L"Musik", [&c] { return std::to_wstring(c.vol_music) + L" %"; }, pct(c.vol_music, 5)});
@@ -182,7 +175,6 @@ void build_items() {
                            overlay_set_open(false);
                            ss::request_load(c.state_slot);
                        }});
-    g_items.push_back({L"Nach Kartenwechsel automatisch (Slot Auto)", [&c] { return onoff(c.autosave_state); }, toggle(c.autosave_state)});
     g_items.push_back({L"Tasten-/Controllerbelegung …", [] { return std::wstring(L"öffnen"); }, [](int dir) {
                            if (dir != 0) return;
                            overlay_set_open(false);

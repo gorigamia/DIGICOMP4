@@ -1,4 +1,4 @@
-﻿// Settings window (F1): graphics, audio and button assignment for keyboard and controller.
+// Settings window (F1): graphics, audio and button assignment for keyboard and controller.
 // Runs on the UI thread; the emulation pauses while it is open.
 #ifndef UNICODE
 #define UNICODE
@@ -22,26 +22,26 @@ void set_fullscreen_public(bool fs);
 static const int ROW_BIT[17] = {14, 13, 15, 12, 10, 11, 8, 9, 3, 0, 4, 6, 7, 5, 1, 2, -1};
 static const wchar_t* ROW_NAME[17] = {L"Kreuz (\x2715)", L"Kreis (\x25CB)", L"Quadrat (\x25A1)", L"Dreieck (\x25B3)", L"L1", L"R1", L"L2", L"R2",
                                       L"Start", L"Select", L"Steuerkreuz hoch", L"Steuerkreuz runter", L"Steuerkreuz links",
-                                      L"Steuerkreuz rechts", L"L3 (linker Stick drÃ¼cken)", L"R3 (rechter Stick drÃ¼cken)",
-                                      L"Rennen (gedrÃ¼ckt halten)"};
+                                      L"Steuerkreuz rechts", L"L3 (linker Stick drücken)", L"R3 (rechter Stick drücken)",
+                                      L"Rennen (gedrückt halten)"};
 
 struct PadSrc { u32 code; const wchar_t* name; };
 static const PadSrc PAD_SOURCES[] = {
     {0x1000, L"A"}, {0x2000, L"B"}, {0x4000, L"X"}, {0x8000, L"Y"}, {0x0100, L"LB"}, {0x0200, L"RB"}, {0x10000, L"LT"},
     {0x20000, L"RT"}, {0x0010, L"Start"}, {0x0020, L"Back"}, {0x0001, L"Steuerkreuz hoch"}, {0x0002, L"Steuerkreuz runter"},
-    {0x0004, L"Steuerkreuz links"}, {0x0008, L"Steuerkreuz rechts"}, {0x0040, L"Linker Stick drÃ¼cken"},
-    {0x0080, L"Rechter Stick drÃ¼cken"},
+    {0x0004, L"Steuerkreuz links"}, {0x0008, L"Steuerkreuz rechts"}, {0x0040, L"Linker Stick drücken"},
+    {0x0080, L"Rechter Stick drücken"},
 };
 
 std::wstring pad_source_name(u32 code) {
-    if (!code) return L"â€“";
+    if (!code) return L"–";
     for (const PadSrc& p : PAD_SOURCES)
         if (p.code == code) return tr(p.name);
     return L"?";
 }
 
 static std::wstring key_name(int vk) {
-    if (!vk) return L"â€“";
+    if (!vk) return L"–";
     UINT sc = MapVirtualKeyW((UINT)vk, MAPVK_VK_TO_VSC);
     switch (vk) {
     case VK_LEFT: case VK_UP: case VK_RIGHT: case VK_DOWN: case VK_PRIOR: case VK_NEXT: case VK_END: case VK_HOME:
@@ -56,14 +56,13 @@ static std::wstring key_name(int vk) {
 }
 
 enum {
-    ID_RENDERER = 100, ID_SCALE, ID_ASPECT, ID_FILTER, ID_WIDESCREEN, ID_FULLSCREEN, ID_VSYNC, ID_FPS, ID_VOLUME, ID_VOLLABEL,
-    ID_LIST, ID_LETTERBOX, ID_HUD, ID_HDTEX, ID_FPS60, ID_SHARP, ID_SHARPLABEL, ID_CATVOL0, ID_CATLABEL0 = ID_CATVOL0 + 4, ID_DISC = ID_CATLABEL0 + 4, ID_SETKEY, ID_SETPAD, ID_CLEARPAD, ID_DEFAULTS, ID_SAVE, ID_CANCEL, ID_STATUS, ID_TIMER = 1
+    ID_RENDERER = 100, ID_SCALE, ID_ASPECT, ID_FILTER, ID_AA, ID_WIDESCREEN, ID_FULLSCREEN, ID_VSYNC, ID_FPS, ID_VOLUME, ID_VOLLABEL,
+    ID_LIST, ID_LETTERBOX, ID_HUD, ID_HDTEX, ID_FPS60, ID_UINEAREST, ID_SHARP, ID_SHARPLABEL, ID_CATVOL0, ID_CATLABEL0 = ID_CATVOL0 + 4, ID_DISC = ID_CATLABEL0 + 4, ID_SETKEY, ID_SETPAD, ID_DEFAULTS, ID_SAVE, ID_CANCEL, ID_STATUS, ID_TIMER = 1
 };
 
 static HWND g_wnd = nullptr, g_parent = nullptr;
-static HWND g_disc;
 static HWND g_catvol[4], g_catlabel[4];  // music, speech, sound effects, movies
-static HWND g_list, g_status, g_renderer, g_scale, g_aspect, g_filter, g_ws, g_lb, g_hud, g_hdtex, g_fps60, g_sharp, g_sharplabel, g_fs, g_vsync, g_fps, g_vol, g_vollabel;
+static HWND g_list, g_status, g_renderer, g_scale, g_aspect, g_filter, g_aa, g_ws, g_lb, g_hud, g_hdtex, g_fps60, g_uinearest, g_sharp, g_sharplabel, g_fs, g_vsync, g_fps, g_vol, g_vollabel;
 static Config g_edit;
 static int g_capture = 0;  // 1 keyboard, 2 controller
 static int g_capture_row = -1;
@@ -84,7 +83,7 @@ static void fill_list() {
         ListView_InsertItem(g_list, &it);
         int bit = ROW_BIT[r];
         std::wstring k = key_name(bit >= 0 ? g_edit.keymap[bit] : g_edit.key_run);
-        std::wstring p = bit >= 0 ? pad_source_name(g_edit.padmap[bit]) : std::wstring(tr(L"Stick ganz durchdrÃ¼cken"));
+        std::wstring p = bit >= 0 ? pad_source_name(g_edit.padmap[bit]) : std::wstring(tr(L"Stick ganz durchdrücken"));
         ListView_SetItemText(g_list, r, 1, (LPWSTR)k.c_str());
         ListView_SetItemText(g_list, r, 2, (LPWSTR)p.c_str());
     }
@@ -96,8 +95,8 @@ static int selected_row() { return ListView_GetNextItem(g_list, -1, LVNI_SELECTE
 
 static void start_capture(int kind) {
     int r = selected_row();
-    if (r < 0) { set_status(tr(L"Bitte zuerst eine Zeile in der Liste auswÃ¤hlen.")); return; }
-    if (kind == 2 && ROW_BIT[r] < 0) { set_status(tr(L"Rennen geht mit dem Controller Ã¼ber den Analogstick.")); return; }
+    if (r < 0) { set_status(tr(L"Bitte zuerst eine Zeile in der Liste auswählen.")); return; }
+    if (kind == 2 && ROW_BIT[r] < 0) { set_status(tr(L"Rennen geht mit dem Controller über den Analogstick.")); return; }
     g_capture = kind;
     g_capture_row = r;
     for (int vk = 0; vk < 256; vk++) g_prev_keys[vk] = (GetAsyncKeyState(vk) & 0x8000) != 0;
@@ -105,7 +104,7 @@ static void start_capture(int kind) {
     g_prev_pad = ~0u;  // ignore buttons already held
     if (pad_state(&xs))
         g_prev_pad = xs.Gamepad.wButtons | (xs.Gamepad.bLeftTrigger > 64 ? 0x10000u : 0) | (xs.Gamepad.bRightTrigger > 64 ? 0x20000u : 0);
-    std::wstring t = std::wstring(kind == 1 ? tr(L"DrÃ¼cke jetzt die Taste fÃ¼r \"") : tr(L"DrÃ¼cke jetzt die Controller-Taste fÃ¼r \"")) +
+    std::wstring t = std::wstring(kind == 1 ? tr(L"Drücke jetzt die Taste für \"") : tr(L"Drücke jetzt die Controller-Taste für \"")) +
                      tr(ROW_NAME[r]) + tr(L"\"  (Esc = abbrechen)");
     set_status(t.c_str());
 }
@@ -185,10 +184,13 @@ static void apply_and_close() {
     restart = c.renderer != g_edit.renderer || c.internal_scale != g_edit.internal_scale;
     g_edit.aspect = (int)SendMessageW(g_aspect, CB_GETCURSEL, 0, 0);
     g_edit.filter = (int)SendMessageW(g_filter, CB_GETCURSEL, 0, 0);
-    g_edit.widescreen_hack = SendMessageW(g_ws, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    g_edit.remove_letterbox = SendMessageW(g_lb, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    g_edit.hud_fix = SendMessageW(g_hud, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    g_edit.aa_mode = (int)SendMessageW(g_aa, CB_GETCURSEL, 0, 0);
+    g_edit.widescreen_hack = g_edit.aspect != 0;
+    g_edit.draw_distance = 100 + 25 * (int)SendMessageW(g_lb, CB_GETCURSEL, 0, 0);
+    g_edit.hud_fix = (int)SendMessageW(g_hud, CB_GETCURSEL, 0, 0);
+    restart |= c.aspect != g_edit.aspect || c.widescreen_hack != g_edit.widescreen_hack || c.draw_distance != g_edit.draw_distance;
     g_edit.hd_textures = SendMessageW(g_hdtex, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    g_edit.ui_nearest = SendMessageW(g_uinearest, BM_GETCHECK, 0, 0) == BST_CHECKED;
     g_edit.fps60 = SendMessageW(g_fps60, BM_GETCHECK, 0, 0) == BST_CHECKED;
     g_edit.sharpen = (int)SendMessageW(g_sharp, TBM_GETPOS, 0, 0);
     g_edit.fullscreen = SendMessageW(g_fs, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -199,26 +201,15 @@ static void apply_and_close() {
     g_edit.vol_voice = (int)SendMessageW(g_catvol[1], TBM_GETPOS, 0, 0);
     g_edit.vol_sfx = (int)SendMessageW(g_catvol[2], TBM_GETPOS, 0, 0);
     g_edit.vol_movie = (int)SendMessageW(g_catvol[3], TBM_GETPOS, 0, 0);
-    int disc = (int)SendMessageW(g_disc, CB_GETCURSEL, 0, 0) == 1 ? 2 : 1;
-    bool disc_changed = disc != c.disc;
-    g_edit.disc = disc;
+    g_edit.disc = c.disc;
     // renderer and resolution apply at the next start (only read when the renderer starts)
     bool fs_changed = c.fullscreen != g_edit.fullscreen;
     c = g_edit;
-    save_config();
     apply_patches();
+    save_config();
     kernel::g_force60 = c.fps60;
-    g_ee_patch[1] = g_ee_patch[2] = c.remove_letterbox;
-    if (disc_changed) {
-        // like swapping discs on the console: the game starts over with the other disc
-        if (MessageBoxW(g_wnd, disc == 2 ? tr(L"Das Spiel wird jetzt mit Disc 2 neu gestartet.\nNicht gespeicherter Fortschritt geht verloren.")
-                                         : tr(L"Das Spiel wird jetzt mit Disc 1 neu gestartet.\nNicht gespeicherter Fortschritt geht verloren."),
-                        tr(L"Disc wechseln"), MB_OKCANCEL | MB_ICONINFORMATION) == IDOK)
-            restart_game();
-        c.disc = disc == 2 ? 1 : 2;  // cancelled: stay with the running disc
-        save_config();
-    } else if (restart) {
-        MessageBoxW(g_wnd, tr(L"Renderer und interne AuflÃ¶sung werden beim nÃ¤chsten Start des Spiels Ã¼bernommen."), tr(L"Einstellungen"),
+    if (restart) {
+        MessageBoxW(g_wnd, L"Reinicie o jogo para aplicar completamente renderer, resolução e câmera. Estados antigos podem preservar a câmera anterior.", tr(L"Einstellungen"),
                     MB_OK | MB_ICONINFORMATION);
     }
     DestroyWindow(g_wnd);
@@ -246,43 +237,51 @@ static void label(int x, int y, int w, const wchar_t* t) { mk(WC_STATICW, t, 0, 
 
 static void build_controls() {
     const Config& c = g_edit;
-    mk(WC_BUTTONW, tr(L"Grafik"), BS_GROUPBOX, 12, 8, 330, 430, -1);
+    mk(WC_BUTTONW, tr(L"Grafik"), BS_GROUPBOX, 12, 8, 330, 500, -1);
     label(24, 36, 120, L"Renderer:");
-    g_renderer = combo(150, 34, 180, ID_RENDERER, {tr(L"GPU (hohe AuflÃ¶sung)"), L"Software"}, c.renderer ? 0 : 1);
-    label(24, 68, 120, tr(L"Interne AuflÃ¶sung:"));
+    g_renderer = combo(150, 34, 180, ID_RENDERER, {tr(L"GPU (hohe Auflösung)"), L"Software"}, c.renderer ? 0 : 1);
+    label(24, 68, 120, tr(L"Interne Auflösung:"));
     int sc = c.internal_scale >= 8 ? 7 : c.internal_scale;
     g_scale = combo(150, 66, 180, ID_SCALE,
                     {tr(L"Automatisch"), L"1x  (512 x 448)", L"2x  (1024 x 896)", L"3x  (1536 x 1344)", L"4x  (2048 x 1792)",
                      L"5x  (2560 x 2240)", L"6x  (3072 x 2688)", L"8x  (4096 x 3584)"},
                     sc);
-    label(24, 100, 120, tr(L"SeitenverhÃ¤ltnis:"));
-    g_aspect = combo(150, 98, 180, ID_ASPECT, {L"4:3", L"16:9", tr(L"Fenster fÃ¼llen"), L"16:10 (Steam Deck)", tr(L"Bildschirm (Ultrawide)")}, c.aspect);
+    label(24, 100, 120, tr(L"Seitenverhältnis:"));
+    g_aspect = combo(150, 98, 180, ID_ASPECT, {L"4:3", L"16:9", tr(L"Fenster füllen"), L"16:10 (Steam Deck)", tr(L"Bildschirm (Ultrawide)")}, c.aspect);
     label(24, 132, 120, tr(L"Bildfilter:"));
     g_filter = combo(150, 130, 180, ID_FILTER, {tr(L"Pixel (scharf)"), tr(L"Bilinear (weich)"), tr(L"Scharf-bilinear")}, c.filter);
-    g_ws = check(24, 166, 310, ID_WIDESCREEN, tr(L"Widescreen (Taste F6)"), c.widescreen_hack);
-    g_hud = check(24, 192, 310, ID_HUD, tr(L"MenÃ¼s/Texte im 4:3-Format (Widescreen)"), c.hud_fix);
-    g_lb = check(24, 218, 310, ID_LETTERBOX, tr(L"Kinobalken entfernen (experimentell)"), c.remove_letterbox);
-    g_fs = check(24, 244, 310, ID_FULLSCREEN, tr(L"Vollbild (Taste F11 / Alt+Enter)"), c.fullscreen);
-    g_vsync = check(24, 270, 310, ID_VSYNC, tr(L"VSync (kein Tearing)"), c.vsync);
-    g_fps = check(24, 296, 310, ID_FPS, tr(L"Bildrate anzeigen (F7)"), c.show_fps);
-    g_hdtex = check(24, 322, 310, ID_HDTEX, tr(L"HD-Texturen (Ordner \"textures\", Taste F8)"), c.hd_textures);
-    g_fps60 = check(24, 348, 310, ID_FPS60, tr(L"60 fps (experimentell, Taste F3)"), c.fps60);
-    label(24, 378, 90, tr(L"NachschÃ¤rfen:"));
-    g_sharp = mk(TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 110, 376, 170, 28, ID_SHARP);
+    label(24, 164, 120, tr(L"Antialiasing:"));
+    g_aa = combo(150, 162, 180, ID_AA, {tr(L"Aus"), L"FXAA"}, c.aa_mode == 1 ? 1 : 0);
+    g_ws = check(24, 190, 310, ID_WIDESCREEN, L"Widescreen automático pela proporção (F6)", c.aspect != 0);
+    EnableWindow(g_ws, FALSE);
+    label(24, 218, 120, L"HUD / menus:");
+    g_hud = combo(150, 216, 180, ID_HUD, {tr(L"Aus"), tr(L"Intelligent"), tr(L"Streng (4:3)")}, c.hud_fix);
+    label(24, 244, 120, L"Alcance (teste):");
+    g_lb = combo(150, 242, 180, ID_LETTERBOX, {L"100% (original)", L"125%", L"150%", L"175%", L"200%"}, (c.draw_distance - 100) / 25);
+    g_fs = check(24, 268, 310, ID_FULLSCREEN, tr(L"Vollbild (Taste F11 / Alt+Enter)"), c.fullscreen);
+    g_vsync = check(24, 294, 310, ID_VSYNC, tr(L"VSync (kein Tearing)"), c.vsync);
+    g_fps = check(24, 320, 310, ID_FPS, tr(L"Bildrate anzeigen (F7)"), c.show_fps);
+    g_hdtex = check(24, 346, 310, ID_HDTEX, tr(L"HD-Texturen (Ordner \"textures\", Taste F8)"), c.hd_textures);
+    g_uinearest = check(24, 372, 310, ID_UINEAREST, tr(L"Textos nítidos (sem linhas na fonte)"), c.ui_nearest);
+    g_fps60 = check(24, 398, 310, ID_FPS60, L"FPS: velocidade original do jogo", c.fps60);
+    EnableWindow(g_fps60, FALSE);
+    label(24, 424, 90, tr(L"Nachschärfen:"));
+    g_sharp = mk(TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 110, 422, 170, 28, ID_SHARP);
     SendMessageW(g_sharp, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
     SendMessageW(g_sharp, TBM_SETPOS, TRUE, c.sharpen);
-    g_sharplabel = mk(WC_STATICW, L"", 0, 286, 381, 50, 20, ID_SHARPLABEL);
+    g_sharplabel = mk(WC_STATICW, L"", 0, 286, 427, 50, 20, ID_SHARPLABEL);
     update_sharp_label();
-    mk(WC_STATICW, tr(L"Renderer/AuflÃ¶sung gelten ab nÃ¤chstem Start."), 0, 24, 408, 310, 20, -1);
+    mk(WC_STATICW, L"Reinicie após mudar renderer, resolução ou câmera.", 0, 24, 452, 310, 20, -1);
+    mk(WC_STATICW, L"Alcance: plano distante; LOD permanece original.", 0, 24, 477, 310, 20, -1);
 
-    mk(WC_BUTTONW, L"Audio / Disc", BS_GROUPBOX, 12, 444, 330, 216, -1);
-    label(24, 626, 90, L"Disc:");
-    g_disc = combo(110, 624, 220, ID_DISC, {L"Disc 1", tr(L"Disc 2 (Neustart)")}, c.disc == 2 ? 1 : 0);
+    mk(WC_BUTTONW, tr(L"Áudio"), BS_GROUPBOX, 12, 520, 330, 216, -1);
+    label(24, 702, 90, L"Disc:");
+    mk(WC_STATICW, L"Disc 1", 0, S(110), S(703), S(220), S(20), -1);
     {
         static const wchar_t* NAMES[4] = {L"Musik:", L"Sprache:", L"Effekte:", L"Videos:"};
         const int vals[4] = {c.vol_music, c.vol_voice, c.vol_sfx, c.vol_movie};
         for (int i = 0; i < 4; i++) {
-            int y = 502 + i * 30;
+            int y = 578 + i * 30;
             label(24, y + 2, 90, tr(NAMES[i]));
             g_catvol[i] = mk(TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 110, y, 170, 28, ID_CATVOL0 + i);
             SendMessageW(g_catvol[i], TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
@@ -291,11 +290,11 @@ static void build_controls() {
             update_cat_label(i);
         }
     }
-    label(24, 472, 90, tr(L"Gesamt:"));
-    g_vol = mk(TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 110, 470, 170, 28, ID_VOLUME);
+    label(24, 548, 90, tr(L"Gesamt:"));
+    g_vol = mk(TRACKBAR_CLASSW, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP, 110, 546, 170, 28, ID_VOLUME);
     SendMessageW(g_vol, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
     SendMessageW(g_vol, TBM_SETPOS, TRUE, c.volume);
-    g_vollabel = mk(WC_STATICW, L"", 0, 286, 475, 50, 20, ID_VOLLABEL);
+    g_vollabel = mk(WC_STATICW, L"", 0, 286, 551, 50, 20, ID_VOLLABEL);
     update_vol_label();
 
     mk(WC_BUTTONW, tr(L"Steuerung"), BS_GROUPBOX, 354, 8, 520, 440, -1);
@@ -314,13 +313,13 @@ static void build_controls() {
     col.cx = S(150);
     ListView_InsertColumn(g_list, 2, &col);
     fill_list();
-    mk(WC_BUTTONW, tr(L"Tastaturtaste Ã¤ndern"), BS_PUSHBUTTON | WS_TABSTOP, 366, 370, 160, 28, ID_SETKEY);
-    mk(WC_BUTTONW, tr(L"Controllertaste Ã¤ndern"), BS_PUSHBUTTON | WS_TABSTOP, 532, 370, 170, 28, ID_SETPAD);
+    mk(WC_BUTTONW, tr(L"Tastaturtaste ändern"), BS_PUSHBUTTON | WS_TABSTOP, 366, 370, 160, 28, ID_SETKEY);
+    mk(WC_BUTTONW, tr(L"Controllertaste ändern"), BS_PUSHBUTTON | WS_TABSTOP, 532, 370, 170, 28, ID_SETPAD);
     mk(WC_BUTTONW, tr(L"Standardbelegung"), BS_PUSHBUTTON | WS_TABSTOP, 708, 370, 154, 28, ID_DEFAULTS);
-    g_status = mk(WC_STATICW, tr(L"Zeile auswÃ¤hlen (Doppelklick = Tastaturtaste Ã¤ndern)."), 0, 366, 410, 496, 34, ID_STATUS);
+    g_status = mk(WC_STATICW, tr(L"Zeile auswählen (Doppelklick = Tastaturtaste ändern)."), 0, 366, 410, 496, 34, ID_STATUS);
 
-    mk(WC_BUTTONW, tr(L"Speichern"), BS_DEFPUSHBUTTON | WS_TABSTOP, 642, 508, 112, 30, ID_SAVE);
-    mk(WC_BUTTONW, tr(L"Abbrechen"), BS_PUSHBUTTON | WS_TABSTOP, 762, 508, 112, 30, ID_CANCEL);
+    mk(WC_BUTTONW, tr(L"Speichern"), BS_DEFPUSHBUTTON | WS_TABSTOP, 642, 760, 112, 30, ID_SAVE);
+    mk(WC_BUTTONW, tr(L"Abbrechen"), BS_PUSHBUTTON | WS_TABSTOP, 762, 760, 112, 30, ID_CANCEL);
 }
 
 void default_input(Config& c);
@@ -334,7 +333,7 @@ static LRESULT CALLBACK settings_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case ID_DEFAULTS:
             default_input(g_edit);
             fill_list();
-            set_status(tr(L"Standardbelegung wiederhergestellt (wird mit \"Speichern\" Ã¼bernommen)."));
+            set_status(tr(L"Standardbelegung wiederhergestellt (wird mit \"Speichern\" übernommen)."));
             return 0;
         case ID_SAVE: apply_and_close(); return 0;
         case ID_CANCEL: DestroyWindow(h); return 0;
@@ -390,7 +389,7 @@ void open_settings(HWND parent) {
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
         wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
-        wc.lpszClassName = L"DigimonWorld4Settings";
+        wc.lpszClassName = L"DW4Settings";
         RegisterClassExW(&wc);
         reg = true;
     }
@@ -400,14 +399,14 @@ void open_settings(HWND parent) {
     if (g_dpi < 96) g_dpi = 96;
     if (g_font) DeleteObject(g_font);
     g_font = CreateFontW(-S(14), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    RECT r{0, 0, S(886), S(672)};  // the audio/disc group ends at 660
+    RECT r{0, 0, S(886), S(800)};  // the audio/disc group ends at 736, buttons at 790
     DWORD style = WS_CAPTION | WS_SYSMENU | WS_POPUP;
     AdjustWindowRectExForDpi(&r, style, FALSE, 0, (UINT)g_dpi);
     RECT pr;
     GetWindowRect(parent, &pr);
     int w = r.right - r.left, hh = r.bottom - r.top;
     int x = pr.left + ((pr.right - pr.left) - w) / 2, y = pr.top + ((pr.bottom - pr.top) - hh) / 2;
-    g_wnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"DigimonWorld4Settings", tr(L"Digimon World 4  -  Settings"), style, x, y, w, hh, parent,
+    g_wnd = CreateWindowExW(WS_EX_DLGMODALFRAME, L"DW4Settings", tr(L"Digimon World 4  -  Einstellungen"), style, x, y, w, hh, parent,
                             nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!g_wnd) return;
     build_controls();
@@ -419,4 +418,3 @@ void open_settings(HWND parent) {
 }
 
 }  // namespace platform
-

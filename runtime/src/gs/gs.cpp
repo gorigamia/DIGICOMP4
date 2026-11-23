@@ -43,8 +43,11 @@ static std::vector<u8> g_readback;       // local->host data
 static size_t g_readback_pos = 0;
 
 void init() {
+    log_write(LOG_GS, "gs init: mem");
     mem_init();
+    log_write(LOG_GS, "gs init: raster");
     raster_init(g_gs_threads);
+    log_write(LOG_GS, "gs init: done");
     memset(&st, 0, sizeof(st));
     st.prmodecont = 1;
     st.colclamp = 1;

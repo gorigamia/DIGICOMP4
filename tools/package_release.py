@@ -9,7 +9,7 @@ def main():
     readme=(ROOT/"RELEASE.txt").read_text(encoding="utf-8")
     with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as z:
         z.write(ROOT/"build/native/DigimonWorld4.exe","DigimonWorld4.exe")
-        z.write(ROOT/"Grandia3-PC-LICENSE","LICENSE-Grandia3.txt")
+        z.write(ROOT/"LICENSE","LICENSE.txt")
         z.writestr("README.txt",readme)
     with zipfile.ZipFile(archive) as z:
         assert z.testzip() is None

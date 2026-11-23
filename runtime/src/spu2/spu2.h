@@ -84,7 +84,7 @@ struct Core {
 
 extern Core g_core[2];
 
-// separate volumes: what each voice plays (Grandia III's sound driver uses fixed voices for its
+// separate volumes: what each voice plays (the game's sound driver uses fixed voices for its
 // two streams), gain 0..256 per category
 enum Category { CAT_MUSIC = 0, CAT_VOICE, CAT_SFX, CAT_MOVIE, CAT_COUNT };
 extern int g_cat_gain[CAT_COUNT];

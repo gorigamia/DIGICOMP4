@@ -1,12 +1,17 @@
-Digimon World 4 Recomp - PS2 USA - experimental preview
+DIGICOMP4 - Digimon World 4 Recomp - PS2 USA - v0.2.0-preview
 
-Extract into a writable folder. Place your own Digimon World 4 (USA).iso
-next to DigimonWorld4.exe and launch the EXE. No Python or compiler required.
-Game data is not included. Supported executable: SLUS_208.36.
-Windows x64 with Direct3D 11 presentation support required.
+Extract the ZIP and run DigimonWorld4.exe.
+Place your own Digimon World 4 (USA).iso or disc1.iso beside the EXE, or choose
+the ISO on first launch. No Python/compiler needed. Game data is not included.
+Windows 10/11 x64; GPU mode needs Direct3D 11.3 rasterizer ordered views.
 
-Default: software renderer, half emulated speed, original 4:3 projection.
-Initial logos and opening video now render. Menu, gameplay and scenery are
-NOT yet validated. This preview is not a completed port.
-Use --clock-scale=1 for full-speed diagnostics; loading can stall under load.
-Settings/logs/saves are written beside the EXE.
+16:9 automatically enables widescreen. F1 opens settings; F6 switches 4:3/16:9.
+GPU 1x, FXAA and sharp UI sampling are the default. F5/F9 save/load states.
+Restart after camera or renderer changes; older states retain camera matrices.
+Far clip 100-200% is experimental and does not change object LOD or streaming.
+
+Validated: opening, character menus and entry into the initial hub.
+Observed locally: menu about 59-60 FPS, initial hub about 30 FPS.
+Full-game graphics, combat, sound and extended distance remain under validation.
+
+Source and updates: https://github.com/gorigamia/DIGICOMP4

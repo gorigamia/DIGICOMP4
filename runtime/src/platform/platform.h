@@ -20,18 +20,20 @@ struct Config {
     int window_height = 960;
     bool fullscreen = false;
     bool vsync = true;
-    int aspect = 0;          // 0 = 4:3, 1 = 16:9 (stretch for widescreen hack), 2 = stretch to window, 3 = 16:10 (Steam Deck),
-                             // 4 = shape of the window (ultrawide: the widescreen view follows it)
+    int aspect = 1;          // 0 = 4:3, 1 = 16:9, 2 = stretch to window, 3 = 16:10, 4 = shape of the window
     int filter = 1;          // 0 = nearest, 1 = bilinear, 2 = sharp bilinear
-    int internal_scale = 0;  // GPU renderer: internal resolution multiplier (0 = automatic from the screen height)
+    int internal_scale = 1;  // GPU renderer: internal resolution multiplier (0 = automatic from the screen height)
+    int draw_distance = 100; // experimental camera far clip, 100..200%; game LOD/streaming unchanged
     int renderer = 1;        // 1 = GPU (Direct3D 11.3), 0 = software
-    bool widescreen_hack = false;
+    int aa_mode = 1;         // 0 = off, 1 = FXAA (single pass on the 3D picture, before the UI)
+    bool ui_nearest = true;  // point sampling for the game's 2D/text draws
+    bool widescreen_hack = true;
     bool remove_letterbox = false;
     bool vibration = true;          // controller rumble
     bool camera_invert_x = false;   // right stick left/right reversed (field camera turns the other way)
     int disc = 1;                   // which disc is "inserted" (1 or 2); switching restarts the game
     bool lod_scale = true;          // GPU renderer: texture detail level follows the internal resolution
-    bool hud_fix = true;            // widescreen: 2D elements keep their 4:3 proportions (GPU renderer)  // no black bars in cutscenes and battles (PCSX2 patch, marked "may cause error")
+    int hud_fix = 2;                // widescreen 4:3 correction: 0 = off, 1 = smart, 2 = strict (GPU renderer)
     bool hd_textures = true;        // GPU renderer: replacement images from the "textures" folder
     bool sharp_text = true;         // GPU renderer: glyphs get sharp contours at high resolution
     bool texture_dump = false;      // GPU renderer: write every new texture to "texdump"
@@ -51,7 +53,7 @@ struct Config {
     bool integer_scaling = false;
     int frame_limit = 1;     // 1 = 60 Hz pacing, 0 = unlimited (fast forward)
     bool gs_thread = true;
-    std::string language = "en";  // game text and interface: "en" (original English text) or a lang\<code>.tsv
+    std::string language = "pt";  // game text and interface: "pt" (Portuguese interface) or a lang\<code>.tsv
     int big_text = -1;       // larger conversation windows (widescreen): -1 = automatic (on with a Steam Deck), 0 = off, 1 = on
     float text_scale = 1.25f;  // their size factor (1.0 .. 1.6)   // VIF1/VU1/GS front end on a thread of their own (gspipe.h)
     // audio
@@ -62,7 +64,7 @@ struct Config {
     bool console = false;
     std::string iso_path;   // disc images of the player's own copy (UTF-8): disc 1, disc 2
     std::string iso_path2;
-    std::string iso_path_jp;  // Grandia III (Japan) disc 1, for the option jp_voices
+    std::string iso_path_jp;  // optional second image used by jp_voices
     std::string save_dir;
     // input: virtual-key codes for PS2 buttons
     int keymap[16];
@@ -72,11 +74,11 @@ struct Config {
 };
 
 Config& config();
-// interface language (i18n.cpp): texts are written in German, tr() gives the English version
+// interface language (i18n.cpp): texts are written in German, tr() gives the English/Portuguese version
 bool ui_german();
 const wchar_t* tr(const wchar_t* de);
 std::wstring tr(const std::wstring& de);
-std::vector<std::string> languages();           // "en" + every lang\<code>.tsv
+std::vector<std::string> languages();           // "en", "pt" + every lang\<code>.tsv
 std::wstring language_name(const std::string& code);
 bool is_steam_deck();     // running on a Steam Deck (Proton): environment, BIOS product name or GPU
 std::string steam_deck_info();
@@ -85,7 +87,8 @@ bool big_text_active();   // option big_text in effect (needs widescreen)
 float text_scale();       // conversation window scale in effect (1 when off)
 void apply_patches();     // optional game code patches from the settings (widescreen 16:9 / 16:10)
 float view_aspect();      // aspect ratio of the widescreen 3D view (16:9, 16:10 or the window's)
-float hud_factor();       // widescreen with 4:3 menus: horizontal factor of 2D elements (3/4, 5/6 for 16:10)
+float hud_factor();       // widescreen with 4:3 menus: horizontal factor of 2D elements
+float hud_y_factor();     // crop-to-widescreen: vertical factor that keeps the HUD inside the visible area
 void load_config(const std::string& path);
 void save_config();
 void init_console(bool enable);

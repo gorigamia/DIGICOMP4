@@ -17,7 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _candidate_reference_tools() -> list[pathlib.Path]:
-    candidates = [ROOT / "tools" / "reference", ROOT / "Grandia3-PC-main" / "tools"]
+    candidates = [ROOT / "tools" / "reference"]
     env = os.environ.get("DIGIMON_RECOMP_REFERENCE_TOOLS") or os.environ.get("REFERENCE_TOOLS")
     if env:
         candidates.insert(0, pathlib.Path(env))

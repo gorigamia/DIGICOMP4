@@ -57,7 +57,7 @@ static const Section SECTIONS[] = {
     {"iopkern", iop::kern::state}, {"ioman", ioman_state}, {"mc", iop::mc::state}, {"pad", iop::pad::state},
 };
 
-static const char MAGIC[8] = {'G', 'R', '3', 'S', 'T', 'A', 'T', 'E'};
+static const char MAGIC[8] = {'D', 'W', '4', 'S', 'T', 'A', 'T', 'E'};
 static const u32 FORMAT = 1;
 struct Header {
     char magic[8];
@@ -80,7 +80,7 @@ static std::string exe_dir() {
     std::string s(p);
     return s.substr(0, s.find_last_of("\\/"));
 }
-std::string slot_path(int slot) { return exe_dir() + "\\savestates\\slot" + std::to_string(slot) + ".g3s"; }
+std::string slot_path(int slot) { return exe_dir() + "\\savestates\\slot" + std::to_string(slot) + ".dw4"; }
 std::wstring slot_label(int slot) { return slot == AUTO_SLOT ? std::wstring(L"Auto") : std::to_wstring(slot); }
 
 static bool read_header(FILE* f, Header& h) {

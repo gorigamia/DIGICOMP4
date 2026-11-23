@@ -55,13 +55,13 @@ def generate_import_fallbacks() -> pathlib.Path:
     return output
 
 
-def generate_grandia_hook_fallbacks() -> pathlib.Path:
+def generate_unused_hook_fallbacks() -> pathlib.Path:
     names = (
         "ee_0010C480", "ee_00120F80", "ee_0012E050", "field_002A8400", "ee_0013B450",
         "field_002615F0", "field_002A11F0", "ee_001A65D0", "field_002A0400", "field_0027A270",
         "battle_0032B900", "ee_0019DC90", "ee_00166780", "ee_001DA6A0", "ee_001D5E20",
     )
-    output = BUILD / "support" / "grandia_hook_fallbacks.cpp"
+    output = BUILD / "support" / "unused_hook_fallbacks.cpp"
     lines = [
         '#include "common.h"',
         '#include "ee_recomp.h"',
@@ -74,7 +74,7 @@ def generate_grandia_hook_fallbacks() -> pathlib.Path:
             f"void {name}(EEContext* c) {{",
             "    (void)c;",
             "    static std::atomic_flag logged = ATOMIC_FLAG_INIT;",
-            f'    if (!logged.test_and_set()) log_write(LOG_MAIN, "Disabled Grandia-only hook: {name}");',
+            f'    if (!logged.test_and_set()) log_write(LOG_MAIN, "Disabled unused game hook: {name}");',
             "}",
         ))
     lines.extend(("}", ""))
@@ -102,7 +102,7 @@ def main() -> int:
         object_root = BUILD / "obj"
         object_root.mkdir(parents=True, exist_ok=True)
         import_fallbacks = generate_import_fallbacks()
-        hook_fallbacks = generate_grandia_hook_fallbacks()
+        hook_fallbacks = generate_unused_hook_fallbacks()
 
         c_sources = sorted((ROOT / "build" / "generated" / "ee").rglob("*.c"))
         c_sources += sorted((ROOT / "build" / "generated" / "iop").rglob("*.c"))

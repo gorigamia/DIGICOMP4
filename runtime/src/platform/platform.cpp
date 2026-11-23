@@ -1,4 +1,4 @@
-﻿// Win32 window, D3D11 presentation, config file, input.
+// Win32 window, D3D11 presentation, config file, input.
 #include "platform.h"
 #include "../memory.h"
 #include "../ee/kernel.h"
@@ -105,30 +105,48 @@ bool is_steam_deck() {
 std::string steam_deck_info() { return is_steam_deck() ? "yes (" + g_deck_why + ")" : "no"; }
 
 void apply_patches() {
-    // Grandia patches must never target Digimon at coincident addresses.
+    // Aspect is the single source of truth: choosing 16:9 also enables the camera patch.
+    g_cfg.aspect = std::clamp(g_cfg.aspect, 0, 4);
+    g_cfg.widescreen_hack = g_cfg.aspect != 0;
+    // Grandia-specific RAM patches and timing hacks do not apply to DW4.
+    g_cfg.remove_letterbox = g_cfg.fps60 = g_cfg.fps60_battle = false;
+    g_cfg.movie_skip = g_cfg.cutscene_skip = g_cfg.subtitles = false;
+    g_cfg.jp_voices = g_cfg.autosave_state = false;
+    g_cfg.big_text = 0;
+    g_cfg.draw_distance = std::clamp(g_cfg.draw_distance, 100, 200);
+    kernel::g_force60 = false;
     for (int i = 0; i < 8; ++i) g_ee_patch[i] = 0;
-    g_cfg.widescreen_hack = g_cfg.hud_fix = false;
 }
 
 static std::atomic<float> g_win_aspect{16.0f / 9.0f};  // client area of the window, set by draw_present
 
 float view_aspect() {
+    if (g_cfg.aspect == 0) return 4.0f / 3.0f;
+    if (g_cfg.aspect == 2) return std::max(g_win_aspect.load(), 1.0f);
     if (g_cfg.aspect == 3) return 16.0f / 10.0f;
     if (g_cfg.aspect == 4) return std::max(g_win_aspect.load(), 4.0f / 3.0f);
     return 16.0f / 9.0f;
 }
 
-float hud_factor() { return 4.0f / 3.0f / view_aspect(); }
+float hud_factor() {
+    // The 3D picture is compressed horizontally and stretched by the presenter to fill a widescreen
+    // window. Narrowing 2D elements by the inverse keeps menus and text at their native 4:3 shape.
+    return g_cfg.widescreen_hack && g_cfg.hud_fix != 0 ? 4.0f / 3.0f / view_aspect() : 1.0f;
+}
+
+float hud_y_factor() {
+    // The presenter stretches only horizontally; vertical proportions stay native.
+    return 1.0f;
+}
 
 static std::string choose_image(const wchar_t* title);
 
 std::string choose_disc_image(int disc) {
-    wchar_t title[160];
-    swprintf(title, 160, tr(L"Digimon World 4 (USA): Abbild deiner Disc wÃ¤hlen (ISO)"), disc);
-    return choose_image(title);
+    (void)disc;
+    return choose_image(tr(L"Digimon World 4: imagem do jogo (ISO)"));
 }
 
-std::string choose_jp_image() { return choose_image(tr(L"Undub: Abbild einer japanischen Disc wÃ¤hlen (ISO)")); }
+std::string choose_jp_image() { return choose_image(tr(L"Undub: imagem opcional (ISO)")); }
 
 static std::string choose_image(const wchar_t* title) {
     wchar_t file[MAX_PATH * 4] = L"";
@@ -161,6 +179,7 @@ float text_scale() {
 
 void load_config(const std::string& path) {
     g_cfg_path = path;
+    bool camera_config_v1 = false;
     default_input(g_cfg);
     FILE* f = fopen(path.c_str(), "r");
     if (!f) {
@@ -196,9 +215,13 @@ void load_config(const std::string& path) {
         else if (k == "aspect") g_cfg.aspect = iv;
         else if (k == "filter") g_cfg.filter = iv;
         else if (k == "internal_scale") g_cfg.internal_scale = iv < 0 ? 0 : (iv > 8 ? 8 : iv);
+        else if (k == "camera_patch_version") camera_config_v1 = iv == 1;
+        else if (k == "draw_distance") g_cfg.draw_distance = iv < 100 ? 100 : (iv > 200 ? 200 : iv);
+        else if (k == "aa_mode") g_cfg.aa_mode = iv < 0 ? 0 : (iv > 1 ? 1 : iv);
+        else if (k == "ui_nearest") g_cfg.ui_nearest = iv != 0;
         else if (k == "widescreen_hack") g_cfg.widescreen_hack = iv != 0;
         else if (k == "remove_letterbox") g_cfg.remove_letterbox = iv != 0;
-        else if (k == "hud_fix") g_cfg.hud_fix = iv != 0;
+        else if (k == "hud_fix") g_cfg.hud_fix = iv < 0 ? 0 : (iv > 2 ? 2 : iv);
         else if (k == "vibration") g_cfg.vibration = iv != 0;
         else if (k == "camera_invert_x") g_cfg.camera_invert_x = iv != 0;
         else if (k == "disc") g_cfg.disc = iv == 2 ? 2 : 1;
@@ -248,6 +271,8 @@ void load_config(const std::string& path) {
         }
     }
     fclose(f);
+    if (!camera_config_v1) g_cfg.draw_distance = 100; // legacy setting only scaled GS depth
+    apply_patches();
 }
 
 void save_config() {
@@ -255,29 +280,33 @@ void save_config() {
     if (!f) return;
     static const char* KEYNAMES[16] = {"select", "l3", "r3", "start", "up", "right", "down", "left",
                                        "l2", "r2", "l1", "r1", "triangle", "circle", "cross", "square"};
-    fprintf(f, "; Digimon World 4 recomp configuration\n");
-    fprintf(f, "[Video]\n");
+    fprintf(f, "; Digimon World 4 Recomp configuration\n");
+    fprintf(f, "[Video]\ncamera_patch_version = 1\n");
     fprintf(f, "width = %d\nheight = %d\n", g_cfg.window_width, g_cfg.window_height);
     fprintf(f, "fullscreen = %d\n", g_cfg.fullscreen);
     fprintf(f, "vsync = %d\n", g_cfg.vsync);
     fprintf(f, "; aspect: 0 = 4:3, 1 = 16:9, 2 = stretch, 3 = 16:10 (Steam Deck; with widescreen a real 16:10 view),\n;         4 = shape of the window (ultrawide screens such as 21:9: the widescreen view fills it)\n");
     fprintf(f, "aspect = %d\n", g_cfg.aspect);
-    fprintf(f, "; filter: 0 = nearest, 1 = bilinear, 2 = sharp bilinear\n");
+    fprintf(f, "; aa_mode: 0 = off, 1 = FXAA on the 3D picture (the UI is drawn afterwards)\naa_mode = %d\n", g_cfg.aa_mode);
+    fprintf(f, "; point sampling for 2D/text draws (removes the vertical seams in letters)\nui_nearest = %d\n", g_cfg.ui_nearest ? 1 : 0);
+    fprintf(f, "; filter for the 3D picture: 0 = nearest, 1 = bilinear, 2 = sharp bilinear\n");
     fprintf(f, "filter = %d\n", g_cfg.filter);
     fprintf(f, "; renderer: gpu (Direct3D 11.3, high resolution) or software\nrenderer = %s\n", g_cfg.renderer ? "gpu" : "software");
     fprintf(f, "; internal resolution multiplier of the gpu renderer (0 = automatic from the screen height, 1 = native 512x448)\n");
     fprintf(f, "internal_scale = %d\n", g_cfg.internal_scale);
-    fprintf(f, "; widescreen: 16:9 view of the 3D scenes (F6 toggles in game; 2D menus are stretched)\n");
+    fprintf(f, "; Experimental camera far clip, 100..200 percent; does not override object LOD or streaming\n");
+    fprintf(f, "draw_distance = %d\n", g_cfg.draw_distance);
+    fprintf(f, "; widescreen: game camera horizontal field of view follows the selected aspect ratio\n");
     fprintf(f, "widescreen_hack = %d\n", g_cfg.widescreen_hack);
     fprintf(f, "; remove the black bars of cutscenes and battles (experimental)\nremove_letterbox = %d\n", g_cfg.remove_letterbox);
-    fprintf(f, "; widescreen: menus, text and map keep their 4:3 proportions (gpu renderer)\nhud_fix = %d\n", g_cfg.hud_fix);
+    fprintf(f, "; widescreen 4:3 correction for 2D layers: 0 = off, 1 = smart (keeps fades full screen), 2 = strict (all textured 2D, including full-width panels)\nhud_fix = %d\n", g_cfg.hud_fix);
     fprintf(f, "; texture detail follows the internal resolution (sharper mip levels, gpu renderer)\nlod_scale = %d\n", g_cfg.lod_scale);
     fprintf(f, "; HD textures from the folder \"textures\" (gpu renderer, F8 toggles in game)\nhd_textures = %d\n", g_cfg.hd_textures);
     fprintf(f, "; sharp text: smooth glyph contours at high internal resolution (gpu renderer)\nsharp_text = %d\n", g_cfg.sharp_text);
     fprintf(f, "; write every new texture to the folder \"texdump\" (for making texture packs)\ntexture_dump = %d\n", g_cfg.texture_dump);
     fprintf(f, "; HD textures: detail level bias (negative = sharper, e.g. -0.5)\nhd_lod_bias = %.2f\n", g_cfg.hd_lod_bias);
     fprintf(f, "; 3D geometry and graphics commands on a processor core of their own (faster on most PCs)\ngs_thread = %d\n", g_cfg.gs_thread);
-    fprintf(f, "; language of the game text and menus: en = original English, de = German (lang\\de.tsv), fr = French (lang\\fr.tsv); takes effect at the next start\nlanguage = %s\n", g_cfg.language.c_str());
+    fprintf(f, "; language of the game text and menus: pt = Portuguese interface, en = original English, de = German (lang\\de.tsv), fr = French (lang\\fr.tsv); takes effect at the next start\nlanguage = %s\n", g_cfg.language.c_str());
     fprintf(f, "; larger conversation windows and text (widescreen only): -1 = automatic (on with a Steam Deck), 0 = off, 1 = on\nbig_text = %d\n", g_cfg.big_text);
     fprintf(f, "; their size factor, 1.0 .. 1.6\ntext_scale = %.2f\n", g_cfg.text_scale);
     fprintf(f, "; sharpening of the picture (contrast adaptive sharpening): 0 = off .. 100 (F4 toggles in game)\nsharpen = %d\n", g_cfg.sharpen);
@@ -287,11 +316,9 @@ void save_config() {
     fprintf(f, "; START skips cutscenes (they run invisibly at high speed until they end)\ncutscene_skip = %d\n", g_cfg.cutscene_skip);
     fprintf(f, "; subtitles for voiced cutscenes (lang\\sub_<language>.tsv)\nsubtitles = %d\n", g_cfg.subtitles);
     fprintf(f, "; 0 = touching a monster in the field starts no battle (story battles still happen)\ncontact_battles = %d\n", g_cfg.contact_battles);
-    fprintf(f, "; Undub: Japanese voices (cutscenes, battles, movies) from your own Grandia III (Japan) disc 1 image:\n"
-               "; iso_path_jp in [Paths], or disc1_jp.iso / \"Grandia III (Japan) (Disc 1).iso\" next to the game or the US image\n"
-               "jp_voices = %d\n", g_cfg.jp_voices);
+    fprintf(f, "; Undub: voices from an optional second image listed in [Paths]\njp_voices = %d\n", g_cfg.jp_voices);
     fprintf(f, "; savestate slot used by F5 (save) and F9 (load); 0 = Auto (load only)\nstate_slot = %d\n", g_cfg.state_slot);
-    fprintf(f, "; 1 = savestate into slot Auto (savestates\\slot0.g3s) a few seconds after every map change\nautosave_state = %d\n", g_cfg.autosave_state);
+    fprintf(f, "; 1 = savestate into slot Auto (savestates\\slot0.dw4) a few seconds after every map change\nautosave_state = %d\n", g_cfg.autosave_state);
     fprintf(f, "; size of the F1 menu in percent (100 .. 200; a larger menu scrolls)\nmenu_size = %d\n", g_cfg.menu_size);
     fprintf(f, "integer_scaling = %d\n", g_cfg.integer_scaling);
     fprintf(f, "show_fps = %d\n", g_cfg.show_fps);
@@ -299,9 +326,9 @@ void save_config() {
     fprintf(f, "\n[Audio]\nenabled = %d\n; volume: 0..100\nvolume = %d\n", g_cfg.audio_enabled, g_cfg.volume);
     fprintf(f, "; separate volumes 0..100: music, speech, sound effects, movies\nvolume_music = %d\nvolume_voice = %d\nvolume_sfx = %d\nvolume_movie = %d\n",
             g_cfg.vol_music, g_cfg.vol_voice, g_cfg.vol_sfx, g_cfg.vol_movie);
-    fprintf(f, "\n[Paths]\n; disc image paths (optional overrides)\niso_path = %s\niso_path2 = %s\nsave_dir = %s\n",
+    fprintf(f, "\n[Paths]\n; image of your own copy of Digimon World 4 (USA)\niso_path = %s\niso_path2 = %s\nsave_dir = %s\n",
             g_cfg.iso_path.c_str(), g_cfg.iso_path2.c_str(), g_cfg.save_dir.c_str());
-    fprintf(f, "; Japanese disc 1 (unused in Digimon default build)\niso_path_jp = %s\n", g_cfg.iso_path_jp.c_str());
+    fprintf(f, "; optional second image, only for jp_voices\niso_path_jp = %s\n", g_cfg.iso_path_jp.c_str());
     fprintf(f, "; inserted disc (1 or 2; the F1 menu switches and restarts)\ndisc = %d\n", g_cfg.disc);
     fprintf(f, "\n[Input]\n; Windows virtual-key codes (hex)\n");
     for (int i = 0; i < 16; i++) fprintf(f, "key_%s = 0x%02X\n", KEYNAMES[i], g_cfg.keymap[i]);
@@ -517,15 +544,14 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         if (wp == VK_F5) { if (!(lp & 0x40000000)) ss::request_save(g_cfg.state_slot); return 0; }  // no key repeat
         if (wp == VK_F9) { if (!(lp & 0x40000000)) ss::request_load(g_cfg.state_slot); return 0; }
         if (wp == VK_F6) {  // widescreen on/off (projection patch + 16:9 output)
-            g_cfg.widescreen_hack = !g_cfg.widescreen_hack;
+            g_cfg.aspect = g_cfg.aspect == 0 ? 1 : 0;
             apply_patches();
             return 0;
         }
         if (wp == VK_F7) { g_cfg.show_fps = !g_cfg.show_fps; return 0; }
         if (wp == VK_F8) { g_cfg.hd_textures = !g_cfg.hd_textures; return 0; }
         if (wp == VK_F3) {  // 60 fps on/off
-            g_cfg.fps60 = !g_cfg.fps60;
-            kernel::g_force60 = g_cfg.fps60;
+            apply_patches(); // legacy shortcut must not enable Grandia timing hacks
             return 0;
         }
         if (wp == VK_F4) {  // sharpening off / back to the last strength
@@ -558,7 +584,7 @@ bool init_video() {
     wc.hInstance = GetModuleHandle(nullptr);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(1));
-    wc.lpszClassName = L"DigimonWorld4Window";
+    wc.lpszClassName = L"DW4Window";
     RegisterClassExW(&wc);
     RECT r{0, 0, g_cfg.window_width, g_cfg.window_height};
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
@@ -777,8 +803,7 @@ static void draw_present(ID3D11ShaderResourceView* srv, int tex_w, int tex_h) {
     float clear[4] = {0, 0, 0, 1};
     g_ctx->ClearRenderTargetView(g_rtv, clear);
     if (srv) {
-        float ar = g_cfg.aspect == 0 ? 4.0f / 3.0f : g_cfg.aspect == 1 ? 16.0f / 9.0f : g_cfg.aspect == 3 ? 16.0f / 10.0f : ww / wh;
-        if (g_cfg.widescreen_hack && g_cfg.aspect == 0) ar = 16.0f / 9.0f;  // widescreen renders a 16:9 view
+        float ar = view_aspect(); // same ratio used by the camera and HUD
         float w = ww, h = wh;
         if (w / h > ar) w = h * ar;
         else h = w / ar;
@@ -1142,7 +1167,7 @@ void run_message_loop() {
         if (g_settings_shot_at > 0 && host_time_sec() >= g_settings_shot_at) {
             // layout check: the settings window drawn into settings.bmp (independent of what is on top)
             g_settings_shot_at = 0;
-            if (HWND sw = FindWindowW(L"DigimonWorld4Settings", nullptr)) {
+            if (HWND sw = FindWindowW(L"DW4Settings", nullptr)) {
                 RECT r;
                 GetWindowRect(sw, &r);
                 int w = r.right - r.left, h = r.bottom - r.top;
@@ -1412,5 +1437,3 @@ static PadState read_pad_now(int port) {
 }
 
 }  // namespace platform
-
-

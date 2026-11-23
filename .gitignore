@@ -37,3 +37,17 @@ Thumbs.db
 *.zip
 *.7z
 *.rar
+
+# Private runtime data and local executables
+*.exe
+*.dll
+*.dw4
+*.ps2
+*.bmp
+*.wav
+memcards/
+savestates/
+shadercache/
+vu_new/
+.env
+.env.*

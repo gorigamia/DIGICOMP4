@@ -299,6 +299,9 @@ static ID3D11Texture2D* g_out_staging;
 static ID3D11Texture2D* g_snap_tex;         // copy of a surface sampled while drawn to
 static ID3D11ShaderResourceView* g_snap_srv;
 static int g_snap_w = 0, g_snap_h = 0;
+static ID3D11Texture2D* g_ui_mask;          // 1 where 2D UI was drawn (FXAA leaves it untouched)
+static ID3D11ShaderResourceView* g_ui_mask_srv;
+static std::vector<u8> g_ui_mask_bits;
 
 // Compiled shaders are cached next to the executable (shadercache/), keyed by source and entry point.
 static bool compile(const char* src, const char* entry, const char* target, ID3DBlob** out) {
@@ -471,6 +474,20 @@ bool init(int scale) {
     make_tex2d(1, 1, DXGI_FORMAT_R32_UINT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_USAGE_DEFAULT, 0, &g_dummy_tex);
     dev->CreateUnorderedAccessView(g_dummy_tex, nullptr, &g_dummy_uav);
     dev->CreateShaderResourceView(g_dummy_tex, nullptr, &g_dummy_srv);
+    {
+        D3D11_TEXTURE2D_DESC md{};
+        md.Width = md.Height = 1024;
+        md.MipLevels = 1;
+        md.ArraySize = 1;
+        md.Format = DXGI_FORMAT_R8_UNORM;
+        md.SampleDesc.Count = 1;
+        md.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        md.Usage = D3D11_USAGE_DYNAMIC;
+        md.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        dev->CreateTexture2D(&md, nullptr, &g_ui_mask);
+        dev->CreateShaderResourceView(g_ui_mask, nullptr, &g_ui_mask_srv);
+        g_ui_mask_bits.resize(1024 * 1024);
+    }
     shadow = new u32[1024 * 1024]();
     {
         static const u32 zero[512] = {};
@@ -988,6 +1005,7 @@ bool g_no_batch_join = false;     // --no-batch-join: a batch per draw state (A/
 bool g_frame_hashes = false;      // --frame-hashes: hash of every presented picture in the log (A/B tests)
 static bool g_cfg_mips = true;    // use the game's mip levels
 static bool g_bhud = false;       // batch of widescreen-corrected 2D elements
+static bool g_bui = false;        // batch of screen-space 2D elements (point sampling, no FXAA)
 static bool g_ball_sprites = true;            // batch consists of sprites only
 static std::vector<PixRect> g_bsprites;       // their exact pixel rectangles
 static int g_bprims = 0;
@@ -1502,7 +1520,8 @@ static void flush() {
     c.f8[0] = ds.minu; c.f8[1] = ds.maxu; c.f8[2] = ds.minv; c.f8[3] = ds.maxv;
     c.f9[0] = (ds.cpsm == PSMCT16 || ds.cpsm == PSMCT16S) ? 1 : 0; c.f9[1] = ds.csa; c.f9[2] = ds.ta0; c.f9[3] = ds.ta1;
     // (for FST primitives, Q = 1, this gives the filter of K like the fixed LOD)
-    bool need_lod = g_btme && !ds.lcm && ds.mag_linear != ds.min_linear;
+    bool point_ui = g_bui && g_btme && platform::config().ui_nearest;
+    bool need_lod = g_btme && !ds.lcm && ds.mag_linear != ds.min_linear && !point_ui;
     c.f10[0] = ds.aem; c.f10[1] = ds.mag_linear; c.f10[2] = ds.min_linear; c.f10[3] = need_lod;
     // the game picks texture detail for 512x448: at S times the resolution the same texel density
     // is reached log2(S) levels finer (sharper mip levels, magnification filter where it was minified)
@@ -1510,6 +1529,16 @@ static void flush() {
     c.f11[0] = lodk; c.f11[1] = need_lod ? exp2f(lodk / (float)(1 << ds.lodl)) : 0.0f; c.f11[2] = tb.tscale;
     c.f13[0] = tb.ox; c.f13[1] = tb.oy;
     c.f14[0] = (u32)nmips; c.f14[1] = ds.mmin; c.f14[2] = ds.lcm; c.f14[3] = ds.lodl;
+    if (point_ui) {
+        // Bilinear sampling of a packed PS2 atlas bleeds neighbouring glyph texels into the text.
+        // Point sampling keeps the letter contours clean (no bleed from adjacent atlas texels).
+        c.f10[1] = c.f10[2] = 0;
+        c.f11[0] = 0.0f;
+        c.f12[0] = 1;
+        c.f14[0] = 1;
+        c.f14[1] = 0;
+        c.f15[2] = 0.0f;
+    }
     for (int y = 0; y < 4; y++)
         for (int x = 0; x < 4; x++) c.dimx[y * 4 + x] = ds.dimx[y][x];
     write_cb(g_cb, &c, sizeof(c));
@@ -1634,6 +1663,7 @@ static inline GV mkv(const DrawState& ds, const Vertex& v, const Vertex& flat) {
     o.st1 = g_ps1;
     o.x = v.x / 16.0f;
     o.y = v.y / 16.0f;
+    // Preserve GS depth: scaling it cannot restore geometry culled by the game.
     o.z = (float)v.z;
     o.r = v.r; o.g = v.g; o.b = v.b; o.a = v.a;
     if (ds.fst) { o.s = v.u / 16.0f; o.t = v.v / 16.0f; o.q = 1.0f; }
@@ -1648,45 +1678,66 @@ static inline GV mkv(const DrawState& ds, const Vertex& v, const Vertex& flat) {
 // Full-width layers (backgrounds, fades, screen filters) keep the full width.
 static u64 st_hud = 0;
 struct HudSpan { int x0 = 1 << 30, x1 = -(1 << 30), width = 0, y0 = 1 << 30, y1 = -(1 << 30), n = 0; };
+struct HudRect { int x0, y0, x1, y1; };
+static std::vector<HudRect> g_hud_rects;              // native-pixel bounds of this frame's 2D elements
 static std::unordered_map<u32, HudSpan> g_hud_span;  // this frame: x range of the 2D pieces per texture
 static std::unordered_set<u32> g_hud_fullwidth;       // textures whose pieces spanned the width last frame
 static void hud_frame_end() {
-    static int log_frames = 0;
-    if (g_hud_log_at > 0 && host_time_sec() >= g_hud_log_at) { g_hud_log_at = host_time_sec() + 3.0; log_frames = 1; }
-    if (log_frames > 0) {
-        log_frames--;
-        log_write(LOG_GS, "hud frame %llu: %zu textures", (unsigned long long)g_frame, g_hud_span.size());
-        for (auto& [k, s] : g_hud_span)
-            log_write(LOG_GS, "hud key %06x tbp %04x tw %u th %u%s n %d x %d..%d y %d..%d", k, k & 0x3FFF, (k >> 14) & 15, (k >> 18) & 15,
-                      (k >> 22) & 1 ? " black" : "", s.n, s.x0 >> 4, s.x1 >> 4, s.y0 >> 4, s.y1 >> 4);
-    }
     g_hud_fullwidth.clear();
     for (auto& [k, s] : g_hud_span)
         if (s.width > 0 && s.x0 <= 4 * 16 && s.x1 >= (s.width - 4) * 16) g_hud_fullwidth.insert(k);
     g_hud_span.clear();
 }
-static bool hud_transform(const DrawState& ds, int prim, const Vertex* v, Vertex* out) {
-    const platform::Config& cfg = platform::config();
-    if (!cfg.widescreen_hack || !cfg.hud_fix) return false;
-    if (ds.fbp != g_display_fbp[0] && ds.fbp != g_display_fbp[1]) return false;
+static int ui_quad(const DrawState& ds, int prim, const Vertex* v, int* minx, int* miny, int* maxx, int* maxy, int* width,
+                   bool strict) {
+    if (ds.fbp != g_display_fbp[0] && ds.fbp != g_display_fbp[1]) return 0;
+    if (ds.tme) {
+        // A transition sampling the displayed picture is not HUD. Keep its strips
+        // full-width, including page-offset sources, without excluding uploaded fonts.
+        Surface* source = surf_by_id(g_owner[ds.tbp & 16383]);
+        if (source && (source->bp == g_display_fbp[0] || source->bp == g_display_fbp[1]))
+            return 0;
+    }
     // screen effects (blur, depth of field, dimming in battles) sample the rendered picture, often in
     // column strips: they keep the full width; menus and text use uploaded textures
-    if (ds.tme && !g_shadow_ok[ds.tbp & 16383]) return false;
+    // DW4 draws its HUD/text from textures that may live in GPU-owned VRAM; they still need the
+    // 4:3 correction, so only reject full-frame layers (handled below) rather than their source.
     int n = prim == 3 ? 3 : prim == 0 ? 1 : 2;
-    if (ds.zte && ds.ztst != 1) return false;
-    int minx = v[0].x, maxx = v[0].x, miny = v[0].y, maxy = v[0].y;
+    // DW4 draws its HUD as screen-space sprites at a constant depth with the depth test enabled.
+    // They are 2D for the purpose of the widescreen correction: require q = 1, one shared z and
+    // coordinates inside the frame, which excludes perspective-projected world geometry.
+    if (ds.tme && !ds.fst)
+        for (int i = 0; i < n; i++)
+            if (fabsf(v[i].q - 1.0f) > 1e-3f) return 0;
+    const u32 z0 = v[0].z;
+    *minx = v[0].x; *maxx = v[0].x; *miny = v[0].y; *maxy = v[0].y;
     for (int i = 0; i < n; i++) {
-        if (v[i].z != 0) return false;
-        if (ds.tme && !ds.fst && fabsf(v[i].q - 1.0f) > 1e-3f) return false;
-        minx = std::min(minx, v[i].x);
-        maxx = std::max(maxx, v[i].x);
-        miny = std::min(miny, v[i].y);
-        maxy = std::max(maxy, v[i].y);
+        // Fonts use ALWAYS depth testing with a nonzero depth. Requiring zero for
+        // that mode moved panels but left their text behind.
+        if (v[i].z != z0) return 0;
+        if (v[i].x < -64 * 16 || v[i].x > ((int)ds.fbw * 64 + 64) * 16 ||
+            v[i].y < -64 * 16 || v[i].y > 448 * 16 + 64 * 16) return 0;
+        *minx = std::min(*minx, v[i].x);
+        *maxx = std::max(*maxx, v[i].x);
+        *miny = std::min(*miny, v[i].y);
+        *maxy = std::max(*maxy, v[i].y);
     }
-    int width = (int)ds.fbw * 64;
-    if (maxx - minx >= (width - 24) * 16) return false;  // full-width layer
-    // full-height strips: clears and backgrounds drawn in columns
-    if (maxy - miny >= 400 * 16) return false;
+    *width = (int)ds.fbw * 64;
+    if (!strict) {
+        if (*maxx - *minx >= (*width - 24) * 16) return 0;  // full-width layer
+        if (*maxy - *miny >= 400 * 16) return 0;             // full-height strips: clears and backgrounds
+    } else if (!ds.tme) {
+        return 0;  // untextured fades, clears and solid fills still cover the whole widescreen frame
+    }
+    return n;
+}
+static bool hud_transform(const DrawState& ds, int prim, const Vertex* v, Vertex* out) {
+    const platform::Config& cfg = platform::config();
+    if (!cfg.widescreen_hack || cfg.hud_fix == 0) return false;
+    bool strict = cfg.hud_fix == 2;
+    int minx, miny, maxx, maxy, width;
+    int n = ui_quad(ds, prim, v, &minx, &miny, &maxx, &maxy, &width, strict);
+    if (!n) return false;
     // layers made of many small pieces that together span the whole width (the battle tutorial's
     // dimming mask with a spotlight hole around the HUD): learned per texture from the previous frame.
     // They are narrowed like the HUD (the hole follows it) but their outer edges stay at the frame
@@ -1701,7 +1752,7 @@ static bool hud_transform(const DrawState& ds, int prim, const Vertex* v, Vertex
     sp.y1 = std::max(sp.y1, maxy);
     sp.n++;
     sp.width = width;
-    bool pin_edges = g_hud_fullwidth.count(key) != 0;
+    bool pin_edges = !strict && g_hud_fullwidth.count(key) != 0;
     int cx = width * 8;  // center in 12.4 fixed point
     float hf = platform::hud_factor();
     for (int i = 0; i < n; i++) {
@@ -1741,7 +1792,13 @@ void on_draw(const DrawState& ds, u32 state_id, int prim, const Vertex* vin) {
     Vertex hv[3];
     bool hud = hud_transform(ds, prim, vin, hv);
     const Vertex* v = hud ? hv : vin;
-    if (state_id != g_bid && g_bvalid && !g_verts.empty() && !g_bself && hud == g_bhud && !(ds.tme && g_bself_tex) &&
+    int ux0, uy0, ux1, uy1, uw;
+    bool ui = false;
+    // 3D projection and clipping happen in the game camera. Only screen-space HUD
+    // vertices are transformed here; scaling projected geometry again would crop it twice.
+    ui = ui_quad(ds, prim, v, &ux0, &uy0, &ux1, &uy1, &uw, platform::config().hud_fix == 2) != 0;
+    if (ui) g_hud_rects.push_back({ux0 >> 4, uy0 >> 4, ux1 >> 4, uy1 >> 4});
+    if (state_id != g_bid && g_bvalid && !g_verts.empty() && !g_bself && hud == g_bhud && ui == g_bui && !(ds.tme && g_bself_tex) &&
         !g_no_batch_join && same_batch_state(g_prev_raw, ds)) {
         // only per-primitive state changed: the primitive joins the batch
         st_why[2]++;
@@ -1751,7 +1808,7 @@ void on_draw(const DrawState& ds, u32 state_id, int prim, const Vertex* vin) {
         g_bover &= prim_overwrites(ds);
         prim_state(ds, g_ps0, g_ps1);
     }
-    if (state_id != g_bid || hud != g_bhud || g_bself) {
+    if (state_id != g_bid || hud != g_bhud || ui != g_bui || g_bself) {
         if (g_bvalid && !g_verts.empty()) {
             const DrawState& p = g_prev_raw;
             if (g_bself) st_why[0]++;
@@ -1780,6 +1837,7 @@ void on_draw(const DrawState& ds, u32 state_id, int prim, const Vertex* vin) {
         flush();
         g_bds = ds;
         g_bhud = hud;
+        g_bui = ui;
         if (hud) {
             // the scissor of a narrowed element (text boxes clip their contents) narrows with it
             int width = (int)ds.fbw * 64, cx = width / 2;
@@ -2049,7 +2107,7 @@ void on_present(const PresentParams& p, const u32* sw_frame) {
     if (g_frame % 600 == 0) evict_textures();
     evict_reps();
     bool en1 = p.pmode & 1, en2 = (p.pmode >> 1) & 1;
-    struct PCB { s32 c1[4], c2[4], m[4], bg[4]; } pc{};
+    struct PCB { s32 c1[4], c2[4], m[4], bg[4], fx[4]; } pc{};
     Surface* s1 = nullptr;
     Surface* s2 = nullptr;
     auto setup = [&](int ci, s32* cc, Surface*& surf) {
@@ -2071,6 +2129,23 @@ void on_present(const PresentParams& p, const u32* sw_frame) {
     int ow = p.w * S, oh = p.out_h * S;
     forget_bound();
     ensure_out(ow, oh);
+    pc.fx[0] = platform::config().aa_mode != 0;
+    pc.fx[1] = ow;
+    pc.fx[2] = oh;
+    if (g_ui_mask && pc.fx[0]) {
+        std::fill(g_ui_mask_bits.begin(), g_ui_mask_bits.end(), 0);
+        for (const HudRect& r : g_hud_rects) {
+            int x0 = std::max(0, r.x0 - 1), y0 = std::max(0, r.y0 - 1);
+            int x1 = std::min(1023, r.x1 + 1), y1 = std::min(1023, r.y1 + 1);
+            for (int y = y0; y <= y1; y++)
+                std::fill(g_ui_mask_bits.begin() + y * 1024 + x0, g_ui_mask_bits.begin() + y * 1024 + x1 + 1, 255);
+        }
+        D3D11_MAPPED_SUBRESOURCE mp{};
+        if (SUCCEEDED(ctx->Map(g_ui_mask, 0, D3D11_MAP_WRITE_DISCARD, 0, &mp))) {
+            memcpy(mp.pData, g_ui_mask_bits.data(), g_ui_mask_bits.size());
+            ctx->Unmap(g_ui_mask, 0);
+        }
+    }
     write_cb(g_cbp, &pc, sizeof(pc));
     ctx->OMSetRenderTargets(1, &g_out_rtv, nullptr);
     D3D11_VIEWPORT vp{0, 0, (float)ow, (float)oh, 0, 1};
@@ -2083,9 +2158,12 @@ void on_present(const PresentParams& p, const u32* sw_frame) {
     ctx->PSSetConstantBuffers(0, 1, &g_cbp);
     ID3D11ShaderResourceView* srvs[2] = {s1 ? s1->srv : g_dummy_srv, s2 ? s2->srv : g_dummy_srv};
     ctx->PSSetShaderResources(0, 2, srvs);
+    ID3D11ShaderResourceView* mask = g_ui_mask_srv;
+    ctx->PSSetShaderResources(2, 1, &mask);
     ctx->Draw(4, 0);
     ID3D11ShaderResourceView* nsrv[2] = {nullptr, nullptr};
     ctx->PSSetShaderResources(0, 2, nsrv);
+    ctx->PSSetShaderResources(2, 1, &nsrv[0]);
     ID3D11RenderTargetView* nrtv = nullptr;
     ctx->OMSetRenderTargets(1, &nrtv, nullptr);
 
@@ -2171,6 +2249,7 @@ void on_present(const PresentParams& p, const u32* sw_frame) {
     g_last_ow = ow;
     g_last_oh = oh;
     platform::present_texture(g_out_srv, ow, oh);
+    g_hud_rects.clear();
     if (sh_state == 2) { platform::config().sharpen = 0; sh_state = 1; }
     else if (sh_state == 3) { platform::config().sharpen = sh_saved; sh_state = 0; }
     forget_bound();

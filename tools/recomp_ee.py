@@ -20,7 +20,7 @@ EXECUTABLE_CONFIG = ROOT / "config" / "executables.json"
 
 
 def _candidate_reference_tools() -> list[pathlib.Path]:
-    candidates = [ROOT / "tools" / "reference", ROOT / "Grandia3-PC-main" / "tools"]
+    candidates = [ROOT / "tools" / "reference"]
     env = os.environ.get("DIGIMON_RECOMP_REFERENCE_TOOLS") or os.environ.get("REFERENCE_TOOLS")
     if env:
         candidates.insert(0, pathlib.Path(env))
@@ -223,6 +223,8 @@ def main() -> int:
             files.extend(embedded_recomp.write(str(args.output / name), header_name="ee_recomp.h"))
             registry_modules.append((name, embedded_module, embedded_functions, embedded_prefix))
         write_registry(args.output, registry_modules)
+        from patch_dw4_camera import patch
+        patch(args.output)
         errors = Counter(
             line.strip()
             for path in args.output.rglob("*.c")
